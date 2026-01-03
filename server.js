@@ -17,7 +17,6 @@ class DualRequestInstaller {
         this.pcIp = process.env.PC_IP || "192.168.100.150";
         this.ps4Ip = process.env.PS4_IP || "192.168.100.12";
         this.callbackPort = 9022;
-        this.npxPort = 8080;
         this.callbackConnected = false;
         this.callbackSocket = null;
         this.pkgSize = 0;
@@ -27,12 +26,13 @@ class DualRequestInstaller {
         this.installationLog = [];
         this.iconData = null;
         this.pkgInfo = null;
-        this.pkgFolder = path.join(__dirname, 'pkgs');
+        this.githubRepo = "GARajab/testNOPSNonNETLIFY";
+        this.githubRawBase = "https://raw.githubusercontent.com";
 
-        // Ensure PKG folder exists
-        if (!fs.existsSync(this.pkgFolder)) {
-            fs.mkdirSync(this.pkgFolder, { recursive: true });
-            console.log(`📁 Created PKG folder: ${this.pkgFolder}`);
+        // Local cache folder
+        this.cacheFolder = path.join(__dirname, 'cache');
+        if (!fs.existsSync(this.cacheFolder)) {
+            fs.mkdirSync(this.cacheFolder, { recursive: true });
         }
     }
 
@@ -43,57 +43,114 @@ class DualRequestInstaller {
         console.log(logEntry);
     }
 
-    scanPkgFolder() {
+    async fetchFromGitHub(pkgName) {
         try {
-            if (!fs.existsSync(this.pkgFolder)) {
-                fs.mkdirSync(this.pkgFolder, { recursive: true });
-                return [];
+            const pkgUrl = `${this.githubRawBase}/${this.githubRepo}/main/pkgs/${encodeURIComponent(pkgName)}`;
+            this.addLog(`🌐 Fetching from GitHub: ${pkgUrl}`);
+
+            return new Promise((resolve, reject) => {
+                const req = http.request(pkgUrl, { method: 'HEAD' }, (res) => {
+                    if (res.statusCode === 200) {
+                        const contentLength = res.headers['content-length'];
+                        if (contentLength) {
+                            resolve({
+                                url: pkgUrl,
+                                size: parseInt(contentLength),
+                                exists: true
+                            });
+                        } else {
+                            reject(new Error('Content-Length not found'));
+                        }
+                    } else if (res.statusCode === 404) {
+                        resolve({
+                            url: pkgUrl,
+                            size: 0,
+                            exists: false
+                        });
+                    } else {
+                        reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+                    }
+                });
+
+                req.on('error', reject);
+                req.setTimeout(10000, () => {
+                    req.destroy();
+                    reject(new Error('Timeout connecting to GitHub'));
+                });
+                req.end();
+            });
+        } catch (error) {
+            this.addLog(`❌ GitHub fetch error: ${error.message}`);
+            throw error;
+        }
+    }
+
+    async scanPkgFolder() {
+        try {
+            this.addLog("🔍 Scanning GitHub repository for PKG files...");
+
+            // GitHub API to list files in pkgs folder
+            const apiUrl = `https://api.github.com/repos/${this.githubRepo}/contents/pkgs`;
+
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                throw new Error(`GitHub API error: ${response.status}`);
             }
 
-            const files = fs.readdirSync(this.pkgFolder);
-            const pkgFiles = files.filter(file =>
-                file.toLowerCase().endsWith('.pkg')
-            );
-
+            const files = await response.json();
             const pkgList = [];
 
-            for (const pkgFile of pkgFiles) {
-                try {
-                    const pkgPath = path.join(this.pkgFolder, pkgFile);
-                    const stats = fs.statSync(pkgPath);
+            for (const file of files) {
+                if (file.name.toLowerCase().endsWith('.pkg')) {
+                    try {
+                        // Get file info from GitHub
+                        const pkgInfo = await this.fetchFromGitHub(file.name);
 
-                    // Check if it's a PKG file
-                    const buffer = fs.readFileSync(pkgPath, { length: 4 });
-                    const magic = buffer.readUInt32BE(0);
+                        if (pkgInfo.exists) {
+                            // Extract basic info from PKG metadata
+                            const basicInfo = await this.extractBasicPkgInfoFromUrl(pkgInfo.url);
 
-                    if (magic === 0x7F434E54) { // Valid PKG magic
-                        const info = this.extractBasicPkgInfo(pkgPath);
-                        pkgList.push({
-                            filename: pkgFile,
-                            size: stats.size,
-                            sizeMB: (stats.size / (1024 * 1024)).toFixed(2),
-                            path: pkgPath,
-                            title: info.title || pkgFile.replace('.pkg', ''),
-                            category: info.category || 'gd',
-                            contentId: info.contentId || 'UNKNOWN',
-                            titleId: info.titleId || 'UNKNOWN'
-                        });
+                            pkgList.push({
+                                filename: file.name,
+                                size: pkgInfo.size,
+                                sizeMB: (pkgInfo.size / (1024 * 1024)).toFixed(2),
+                                url: pkgInfo.url,
+                                title: basicInfo.title || file.name.replace('.pkg', ''),
+                                category: basicInfo.category || 'gd',
+                                contentId: basicInfo.contentId || 'UNKNOWN',
+                                titleId: basicInfo.titleId || 'UNKNOWN',
+                                downloadUrl: pkgInfo.url
+                            });
+                        }
+                    } catch (err) {
+                        this.addLog(`⚠️ Skipping ${file.name}: ${err.message}`);
                     }
-                } catch (err) {
-                    console.log(`⚠️ Skipping ${pkgFile}: ${err.message}`);
                 }
             }
 
             return pkgList.sort((a, b) => a.title.localeCompare(b.title));
         } catch (error) {
-            console.log(`❌ Error scanning PKG folder: ${error.message}`);
-            return [];
+            this.addLog(`❌ Error scanning GitHub: ${error.message}`);
+
+            // Fallback: Try to get from local cache if GitHub fails
+            return this.getCachedPkgList();
         }
     }
 
-    extractBasicPkgInfo(pkgPath) {
+    async extractBasicPkgInfoFromUrl(pkgUrl) {
         try {
-            const buffer = fs.readFileSync(pkgPath, { length: 1024 * 1024 });
+            // Download first 1MB to extract basic info
+            const response = await fetch(pkgUrl, {
+                headers: { 'Range': 'bytes=0-1048575' }
+            });
+
+            if (!response.ok) {
+                return this.getFallbackInfo(pkgUrl);
+            }
+
+            const buffer = await response.arrayBuffer();
+            const data = Buffer.from(buffer);
+
             const info = {
                 title: '',
                 category: 'gd',
@@ -101,33 +158,33 @@ class DualRequestInstaller {
                 titleId: 'UNKNOWN'
             };
 
-            // Look for param.sfo
-            for (let i = 0; i < buffer.length - 4; i++) {
-                if (buffer[i] === 0x00 && buffer[i + 1] === 0x50 &&
-                    buffer[i + 2] === 0x53 && buffer[i + 3] === 0x46) {
+            // Look for param.sfo in the downloaded chunk
+            for (let i = 0; i < data.length - 4; i++) {
+                if (data[i] === 0x00 && data[i + 1] === 0x50 &&
+                    data[i + 2] === 0x53 && data[i + 3] === 0x46) {
 
                     const sfoOffset = i;
                     let offset = sfoOffset + 8;
 
-                    const keyTableStart = buffer.readUInt32LE(offset); offset += 4;
-                    const dataTableStart = buffer.readUInt32LE(offset); offset += 4;
-                    const entryCount = buffer.readUInt32LE(offset); offset += 4;
+                    const keyTableStart = data.readUInt32LE(offset); offset += 4;
+                    const dataTableStart = data.readUInt32LE(offset); offset += 4;
+                    const entryCount = data.readUInt32LE(offset); offset += 4;
 
                     for (let j = 0; j < entryCount; j++) {
                         const entryOffset = sfoOffset + 20 + (j * 16);
-                        if (entryOffset + 16 > buffer.length) break;
+                        if (entryOffset + 16 > data.length) break;
 
-                        const keyOffset = buffer.readUInt16LE(entryOffset);
-                        const dataFormat = buffer.readUInt16LE(entryOffset + 2);
-                        const dataLength = buffer.readUInt32LE(entryOffset + 4);
-                        const dataOffset = buffer.readUInt32LE(entryOffset + 12);
+                        const keyOffset = data.readUInt16LE(entryOffset);
+                        const dataFormat = data.readUInt16LE(entryOffset + 2);
+                        const dataLength = data.readUInt32LE(entryOffset + 4);
+                        const dataOffset = data.readUInt32LE(entryOffset + 12);
 
                         // Read key name
                         const keyPos = sfoOffset + keyTableStart + keyOffset;
                         let keyName = "";
                         for (let k = 0; k < 50; k++) {
-                            if (keyPos + k >= buffer.length) break;
-                            const charCode = buffer[keyPos + k];
+                            if (keyPos + k >= data.length) break;
+                            const charCode = data[keyPos + k];
                             if (charCode === 0) break;
                             keyName += String.fromCharCode(charCode);
                         }
@@ -138,8 +195,8 @@ class DualRequestInstaller {
                             let value = "";
 
                             for (let k = 0; k < dataLength; k++) {
-                                if (dataPos + k >= buffer.length) break;
-                                const charCode = buffer[dataPos + k];
+                                if (dataPos + k >= data.length) break;
+                                const charCode = data[dataPos + k];
                                 if (charCode === 0) break;
                                 value += String.fromCharCode(charCode);
                             }
@@ -168,19 +225,34 @@ class DualRequestInstaller {
 
             return info;
         } catch (error) {
-            return {
-                title: path.basename(pkgPath).replace('.pkg', ''),
-                category: 'gd',
-                contentId: 'UNKNOWN',
-                titleId: 'UNKNOWN'
-            };
+            this.addLog(`⚠️ Could not extract PKG info: ${error.message}`);
+            return this.getFallbackInfo(pkgUrl);
         }
     }
 
-    extractIconFromPKG(pkgPath) {
+    getFallbackInfo(pkgUrl) {
+        const filename = path.basename(pkgUrl);
+        return {
+            title: filename.replace('.pkg', ''),
+            category: 'gd',
+            contentId: 'UNKNOWN',
+            titleId: 'UNKNOWN'
+        };
+    }
+
+    async extractIconFromUrl(pkgUrl) {
         try {
-            const pkgBuffer = fs.readFileSync(pkgPath);
-            const fileSize = pkgBuffer.length;
+            // Download first 2MB to find icon
+            const response = await fetch(pkgUrl, {
+                headers: { 'Range': 'bytes=0-2097151' }
+            });
+
+            if (!response.ok) {
+                return null;
+            }
+
+            const buffer = await response.arrayBuffer();
+            const pkgBuffer = Buffer.from(buffer);
 
             // Read PKG header magic
             const magic = pkgBuffer.readUInt32BE(0);
@@ -200,7 +272,7 @@ class DualRequestInstaller {
             let iconSize = 0;
 
             for (let i = 0; i < entryCount; i++) {
-                if (offset + 32 > fileSize) break;
+                if (offset + 32 > pkgBuffer.length) break;
 
                 const id = pkgBuffer.readUInt32BE(offset);
                 const dataSize = pkgBuffer.readUInt32BE(offset + 4);
@@ -217,91 +289,172 @@ class DualRequestInstaller {
             }
 
             if (!foundIcon) {
-                return this.scanForImage(pkgBuffer, fileSize);
-            }
-
-            // Extract icon data
-            if (iconOffset + iconSize > fileSize) {
                 return null;
             }
 
-            const iconBuffer = pkgBuffer.slice(iconOffset, iconOffset + iconSize);
+            // Check if icon is within downloaded range
+            if (iconOffset + iconSize > pkgBuffer.length) {
+                // Need to download more data for the icon
+                const iconResponse = await fetch(pkgUrl, {
+                    headers: { 'Range': `bytes=${iconOffset}-${iconOffset + iconSize - 1}` }
+                });
 
-            const isPNG = iconBuffer[0] === 0x89 && iconBuffer[1] === 0x50 &&
-                iconBuffer[2] === 0x4E && iconBuffer[3] === 0x47;
-            const isJPEG = iconBuffer[0] === 0xFF && iconBuffer[1] === 0xD8;
+                if (!iconResponse.ok) {
+                    return null;
+                }
 
-            if (isPNG || isJPEG) {
-                return {
-                    data: iconBuffer,
-                    size: iconSize,
-                    type: isPNG ? 'png' : 'jpeg'
-                };
+                const iconBuffer = await iconResponse.arrayBuffer();
+                const iconData = Buffer.from(iconBuffer);
+
+                const isPNG = iconData[0] === 0x89 && iconData[1] === 0x50 &&
+                    iconData[2] === 0x4E && iconData[3] === 0x47;
+                const isJPEG = iconData[0] === 0xFF && iconData[1] === 0xD8;
+
+                if (isPNG || isJPEG) {
+                    return {
+                        data: iconData,
+                        size: iconSize,
+                        type: isPNG ? 'png' : 'jpeg'
+                    };
+                }
+            } else {
+                // Icon is within already downloaded data
+                const iconData = pkgBuffer.slice(iconOffset, iconOffset + iconSize);
+
+                const isPNG = iconData[0] === 0x89 && iconData[1] === 0x50 &&
+                    iconData[2] === 0x4E && iconData[3] === 0x47;
+                const isJPEG = iconData[0] === 0xFF && iconData[1] === 0xD8;
+
+                if (isPNG || isJPEG) {
+                    return {
+                        data: iconData,
+                        size: iconSize,
+                        type: isPNG ? 'png' : 'jpeg'
+                    };
+                }
             }
 
             return null;
 
         } catch (error) {
+            this.addLog(`⚠️ Error extracting icon: ${error.message}`);
             return null;
         }
     }
 
-    scanForImage(pkgBuffer, fileSize) {
-        // Look for PNG or JPEG in first 2MB
-        const searchLimit = Math.min(fileSize, 2 * 1024 * 1024);
-
-        for (let i = 0x1000; i < searchLimit - 8; i++) {
-            // PNG
-            if (pkgBuffer[i] === 0x89 && pkgBuffer[i + 1] === 0x50 &&
-                pkgBuffer[i + 2] === 0x4E && pkgBuffer[i + 3] === 0x47) {
-
-                let pngEnd = i;
-                for (let j = i + 8; j < Math.min(i + 1024 * 1024, fileSize - 8); j++) {
-                    if (pkgBuffer[j] === 0x49 && pkgBuffer[j + 1] === 0x45 &&
-                        pkgBuffer[j + 2] === 0x4E && pkgBuffer[j + 3] === 0x44) {
-                        pngEnd = j + 8;
-                        break;
-                    }
-                }
-
-                const pngSize = pngEnd - i;
-                if (pngSize > 100 && pngSize < 1024 * 1024) {
-                    return {
-                        data: pkgBuffer.slice(i, pngEnd),
-                        size: pngSize,
-                        type: 'png'
-                    };
-                }
+    async getCachedPkgList() {
+        try {
+            const cacheFile = path.join(this.cacheFolder, 'pkg_cache.json');
+            if (fs.existsSync(cacheFile)) {
+                const data = fs.readFileSync(cacheFile, 'utf8');
+                return JSON.parse(data);
             }
-
-            // JPEG
-            if (pkgBuffer[i] === 0xFF && pkgBuffer[i + 1] === 0xD8 && pkgBuffer[i + 2] === 0xFF) {
-                let jpegEnd = i;
-                for (let j = i + 2; j < Math.min(i + 1024 * 1024, fileSize - 2); j++) {
-                    if (pkgBuffer[j] === 0xFF && pkgBuffer[j + 1] === 0xD9) {
-                        jpegEnd = j + 2;
-                        break;
-                    }
-                }
-
-                const jpegSize = jpegEnd - i;
-                if (jpegSize > 100 && jpegSize < 1024 * 1024) {
-                    return {
-                        data: pkgBuffer.slice(i, jpegEnd),
-                        size: jpegSize,
-                        type: 'jpeg'
-                    };
-                }
-            }
+        } catch (error) {
+            // Ignore cache errors
         }
-
-        return null;
+        return [];
     }
 
-    extractFullPkgInfo(pkgPath) {
+    async savePkgCache(pkgList) {
         try {
-            const pkgBuffer = fs.readFileSync(pkgPath);
-            const fileSize = pkgBuffer.length;
+            const cacheFile = path.join(this.cacheFolder, 'pkg_cache.json');
+            fs.writeFileSync(cacheFile, JSON.stringify(pkgList, null, 2));
+        } catch (error) {
+            // Ignore cache save errors
+        }
+    }
+
+    async install(pkgName) {
+        this.installationLog = [];
+        this.addLog("🎮 DUAL REQUEST INSTALLER");
+        this.addLog("==================================================");
+
+        this.pkgName = pkgName;
+
+        // Get PKG from GitHub
+        this.addLog(`🌐 Fetching PKG info from GitHub...`);
+        const pkgInfo = await this.fetchFromGitHub(pkgName);
+
+        if (!pkgInfo.exists) {
+            this.addLog(`❌ PKG file not found on GitHub: ${pkgName}`);
+            return false;
+        }
+
+        this.pkgSize = pkgInfo.size;
+        const pkgUrl = pkgInfo.url;
+
+        this.addLog(`📦 File: ${pkgName}`);
+        this.addLog(`💾 Size: ${this.pkgSize} bytes (${(this.pkgSize / (1024 * 1024)).toFixed(2)} MB)`);
+        this.addLog(`🔗 URL: ${pkgUrl}`);
+
+        // Extract PKG information
+        this.addLog(`🔍 Extracting PKG information...`);
+        this.pkgInfo = await this.extractFullPkgInfoFromUrl(pkgUrl);
+
+        this.addLog(`📋 Title: ${this.pkgInfo.title}`);
+        this.addLog(`📋 Content ID: ${this.pkgInfo.contentId}`);
+        this.addLog(`📋 Title ID: ${this.pkgInfo.titleId}`);
+        this.addLog(`📋 Category: ${this.pkgInfo.category} (${this.pkgInfo.contentType})`);
+        this.addLog(`📋 Version: ${this.pkgInfo.version}`);
+
+        // Extract icon
+        this.addLog(`🖼️ Extracting icon from PKG...`);
+        this.iconData = await this.extractIconFromUrl(pkgUrl);
+        if (this.iconData) {
+            this.addLog(`✅ Icon extracted: ${this.iconData.size} bytes (${this.iconData.type})`);
+        } else {
+            this.addLog("⚠️ No icon found in PKG");
+        }
+
+        // Start callback server
+        this.addLog(`📡 Starting callback server on port ${this.callbackPort}...`);
+        this.startCallbackServer();
+
+        // Patch payload
+        const payload = await this.patchPayload();
+        if (!payload) return false;
+
+        // Send payload to PS4
+        this.addLog("📤 Sending payload to PS4...");
+        const sent = await this.sendPayload(payload);
+        if (!sent) return false;
+
+        // Wait for PS4 to connect back
+        this.addLog("⏳ Waiting for PS4 to connect back...");
+        const connected = await this.waitForCallback(30);
+        if (!connected) {
+            this.addLog("❌ PS4 did not connect back in time");
+            return false;
+        }
+
+        // Send metadata
+        this.sendMetadata(pkgUrl);
+
+        // Stream file directly from GitHub to PS4
+        await this.streamFileFromGitHub(pkgUrl);
+        this.addLog("✅ Installation completed!");
+
+        // Auto cleanup
+        setTimeout(() => {
+            this.cleanup();
+        }, 3000);
+
+        return true;
+    }
+
+    async extractFullPkgInfoFromUrl(pkgUrl) {
+        try {
+            // Download first 2MB for param.sfo extraction
+            const response = await fetch(pkgUrl, {
+                headers: { 'Range': 'bytes=0-2097151' }
+            });
+
+            if (!response.ok) {
+                return this.generateFallbackInfo(pkgUrl);
+            }
+
+            const buffer = await response.arrayBuffer();
+            const pkgBuffer = Buffer.from(buffer);
 
             const info = {
                 title: '',
@@ -327,9 +480,9 @@ class DualRequestInstaller {
                 subTitle: '',
                 thumbnail: '',
                 uiCategory: 'default',
-                filename: path.basename(pkgPath),
-                filesize: fileSize,
-                filesizeMB: (fileSize / (1024 * 1024)).toFixed(2)
+                filename: path.basename(pkgUrl),
+                filesize: this.pkgSize || 0,
+                filesizeMB: this.pkgSize ? (this.pkgSize / (1024 * 1024)).toFixed(2) : '0'
             };
 
             // Find param.sfo
@@ -343,7 +496,7 @@ class DualRequestInstaller {
             }
 
             if (sfoOffset === -1) {
-                return this.generateFallbackInfo(pkgPath);
+                return this.generateFallbackInfo(pkgUrl);
             }
 
             // Parse param.sfo
@@ -455,12 +608,6 @@ class DualRequestInstaller {
                             info.uiCategory = value;
                             break;
                     }
-                } else if (dataFormat === 0x0404) {
-                    const dataPos = sfoOffset + dataTableStart + dataOffset;
-                    if (dataPos + 4 <= pkgBuffer.length) {
-                        const intValue = pkgBuffer.readUInt32LE(dataPos);
-                        info[keyName] = intValue.toString();
-                    }
                 }
             }
 
@@ -472,13 +619,13 @@ class DualRequestInstaller {
             return info;
 
         } catch (error) {
-            console.error('Error extracting full PKG info:', error.message);
-            return this.generateFallbackInfo(pkgPath);
+            this.addLog(`❌ Error extracting PKG info: ${error.message}`);
+            return this.generateFallbackInfo(pkgUrl);
         }
     }
 
-    generateFallbackInfo(pkgPath) {
-        const filename = path.basename(pkgPath);
+    generateFallbackInfo(pkgUrl) {
+        const filename = path.basename(pkgUrl);
         const baseName = filename.replace('.pkg', '').replace(/_/g, ' ');
 
         return {
@@ -491,8 +638,8 @@ class DualRequestInstaller {
             systemVer: '01.00',
             version: '01.00',
             filename: filename,
-            filesize: 0,
-            filesizeMB: '0'
+            filesize: this.pkgSize || 0,
+            filesizeMB: this.pkgSize ? (this.pkgSize / (1024 * 1024)).toFixed(2) : '0'
         };
     }
 
@@ -522,114 +669,6 @@ class DualRequestInstaller {
         };
 
         return categories[category.toLowerCase()] || `Unknown (${category})`;
-    }
-
-    async getFileSize(url) {
-        return new Promise((resolve, reject) => {
-            const req = http.request(url, { method: 'HEAD' }, (res) => {
-                if (res.statusCode === 200) {
-                    const length = res.headers['content-length'];
-                    if (length) {
-                        resolve(parseInt(length));
-                    } else {
-                        reject(new Error('Content-Length header not found'));
-                    }
-                } else {
-                    reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
-                }
-            });
-
-            req.on('error', (err) => {
-                reject(new Error(`Network error: ${err.message}`));
-            });
-
-            req.setTimeout(5000, () => {
-                req.destroy();
-                reject(new Error('Timeout connecting to NPX server'));
-            });
-
-            req.end();
-        });
-    }
-
-    async install(pkgName) {
-        this.installationLog = [];
-        this.addLog("🎮 DUAL REQUEST INSTALLER");
-        this.addLog("==================================================");
-
-        this.pkgName = pkgName;
-        this.pkgPath = path.join(this.pkgFolder, pkgName);
-        const pkgUrl = `http://${this.pcIp}:${this.npxPort}/pkgs/${encodeURIComponent(pkgName)}`;
-
-        if (!fs.existsSync(this.pkgPath)) {
-            this.addLog(`❌ PKG file not found: ${this.pkgPath}`);
-            return false;
-        }
-
-        try {
-            const stats = fs.statSync(this.pkgPath);
-            this.addLog(`📦 File: ${pkgName}`);
-            this.addLog(`💾 Size: ${stats.size} bytes (${(stats.size / (1024 * 1024)).toFixed(2)} MB)`);
-        } catch (e) {
-            this.addLog(`⚠️ Could not get file stats: ${e.message}`);
-        }
-
-        this.addLog(`🔍 Extracting PKG information...`);
-        this.pkgInfo = this.extractFullPkgInfo(this.pkgPath);
-
-        this.addLog(`📋 Title: ${this.pkgInfo.title}`);
-        this.addLog(`📋 Content ID: ${this.pkgInfo.contentId}`);
-        this.addLog(`📋 Title ID: ${this.pkgInfo.titleId}`);
-        this.addLog(`📋 Category: ${this.pkgInfo.category} (${this.pkgInfo.contentType})`);
-        this.addLog(`📋 Version: ${this.pkgInfo.version}`);
-
-        this.addLog(`🖼️ Extracting icon from PKG...`);
-        this.iconData = this.extractIconFromPKG(this.pkgPath);
-        if (this.iconData) {
-            this.addLog(`✅ Icon extracted: ${this.iconData.size} bytes (${this.iconData.type})`);
-        } else {
-            this.addLog("⚠️ No icon found in PKG");
-        }
-
-        this.addLog(`📡 Checking file on npx server: ${pkgUrl}`);
-        try {
-            this.pkgSize = await this.getFileSize(pkgUrl);
-            this.addLog(`✅ NPX server file available`);
-            this.addLog(`📊 NPX size: ${this.pkgSize} bytes (${(this.pkgSize / (1024 * 1024)).toFixed(2)} MB)`);
-        } catch (e) {
-            this.addLog(`❌ Cannot access npx server: ${e.message}`);
-            this.addLog(`   Make sure npx http-server is running on port ${this.npxPort}`);
-            this.addLog(`   Command: npx http-server -p ${this.npxPort} --cors`);
-            return false;
-        }
-
-        this.addLog(`📡 Starting callback server on port ${this.callbackPort}...`);
-        this.startCallbackServer();
-
-        const payload = await this.patchPayload();
-        if (!payload) return false;
-
-        this.addLog("📤 Sending payload to PS4...");
-        const sent = await this.sendPayload(payload);
-        if (!sent) return false;
-
-        this.addLog("⏳ Waiting for PS4 to connect back...");
-        const connected = await this.waitForCallback(30);
-        if (!connected) {
-            this.addLog("❌ PS4 did not connect back in time");
-            return false;
-        }
-
-        this.sendMetadata();
-
-        await this.streamFileFromNpx(pkgUrl);
-        this.addLog("✅ Installation completed!");
-
-        setTimeout(() => {
-            this.cleanup();
-        }, 3000);
-
-        return true;
     }
 
     startCallbackServer() {
@@ -678,7 +717,7 @@ class DualRequestInstaller {
         });
     }
 
-    sendMetadata() {
+    sendMetadata(pkgUrl) {
         if (!this.callbackSocket) {
             this.addLog("❌ No callback socket");
             return;
@@ -687,7 +726,6 @@ class DualRequestInstaller {
             const contentId = this.pkgInfo.contentId;
             const bgftType = this.pkgInfo.category;
             const title = this.pkgInfo.title;
-            const pkgUrl = `http://${this.pcIp}:${this.npxPort}/pkgs/${encodeURIComponent(this.pkgName)}`;
 
             const urlData = Buffer.from(pkgUrl, 'utf-8');
             const nameData = Buffer.from(title, 'utf-8');
@@ -738,18 +776,19 @@ class DualRequestInstaller {
             this.addLog(`✅ Metadata sent for: ${title}`);
             this.addLog(`   Content ID: ${contentId}`);
             this.addLog(`   Type: ${bgftType}`);
+            this.addLog(`   Source: GitHub`);
         } catch (err) {
             this.addLog(`❌ Metadata error: ${err.message}`);
         }
     }
 
-    async streamFileFromNpx(pkgUrl) {
+    async streamFileFromGitHub(pkgUrl) {
         if (!this.callbackSocket) {
             this.addLog("❌ No callback socket for streaming");
             return;
         }
 
-        this.addLog(`📥 Downloading from: ${pkgUrl}`);
+        this.addLog(`📥 Downloading from GitHub: ${pkgUrl}`);
         return new Promise((resolve) => {
             http.get(pkgUrl, (res) => {
                 if (res.statusCode !== 200) {
@@ -900,14 +939,15 @@ class DualRequestInstaller {
 const installer = new DualRequestInstaller();
 
 // API Routes
-app.get('/api/pkgs', (req, res) => {
+app.get('/api/pkgs', async (req, res) => {
     try {
-        const pkgs = installer.scanPkgFolder();
+        const pkgs = await installer.scanPkgFolder();
         res.json({
             success: true,
             pkgs: pkgs,
             count: pkgs.length,
-            folder: installer.pkgFolder
+            source: 'GitHub',
+            repo: installer.githubRepo
         });
     } catch (error) {
         res.status(500).json({
@@ -918,27 +958,31 @@ app.get('/api/pkgs', (req, res) => {
     }
 });
 
-app.get('/api/pkgs/:pkgName/info', (req, res) => {
+app.get('/api/pkgs/:pkgName/info', async (req, res) => {
     try {
         const pkgName = req.params.pkgName;
-        const pkgPath = path.join(installer.pkgFolder, pkgName);
+        const pkgUrl = `https://raw.githubusercontent.com/${installer.githubRepo}/main/pkgs/${encodeURIComponent(pkgName)}`;
 
-        if (!fs.existsSync(pkgPath)) {
+        // Check if file exists
+        const pkgInfo = await installer.fetchFromGitHub(pkgName);
+        if (!pkgInfo.exists) {
             return res.status(404).json({
                 success: false,
-                message: 'PKG file not found'
+                message: 'PKG file not found on GitHub'
             });
         }
 
-        const info = installer.extractFullPkgInfo(pkgPath);
-        const icon = installer.extractIconFromPKG(pkgPath);
+        const info = await installer.extractFullPkgInfoFromUrl(pkgUrl);
+        const icon = await installer.extractIconFromUrl(pkgUrl);
 
         const response = {
             success: true,
             info: info,
             hasIcon: !!icon,
             iconSize: icon ? icon.size : 0,
-            iconType: icon ? icon.type : null
+            iconType: icon ? icon.type : null,
+            source: 'GitHub',
+            url: pkgUrl
         };
 
         if (icon && req.query.includeIcon === 'true') {
@@ -965,12 +1009,13 @@ app.post('/api/install', async (req, res) => {
     }
 
     try {
-        installer.addLog("Starting installation...");
+        installer.addLog("Starting installation from GitHub...");
         const success = await installer.install(pkgName);
         res.json({
             success,
             message: success ? "Installation completed" : "Installation failed",
-            log: installer.installationLog
+            log: installer.installationLog,
+            source: 'GitHub'
         });
     } catch (error) {
         installer.addLog(`Installation error: ${error.message}`);
@@ -986,7 +1031,8 @@ app.get('/api/status', (req, res) => {
     res.json({
         log: installer.installationLog,
         isInstalling: installer.callbackConnected,
-        currentPkg: installer.pkgName
+        currentPkg: installer.pkgName,
+        source: 'GitHub'
     });
 });
 
@@ -998,9 +1044,6 @@ app.post('/api/cleanup', (req, res) => {
         log: installer.installationLog
     });
 });
-
-// Serve PKG files
-app.use('/pkgs', express.static(installer.pkgFolder));
 
 // Serve HTML from root
 app.get('/', (req, res) => {
@@ -1014,20 +1057,20 @@ app.get('/', (req, res) => {
                 <style>
                     body { font-family: Arial; text-align: center; padding: 50px; }
                     h1 { color: #333; }
-                    .error { color: red; }
+                    .github { color: blue; }
                 </style>
                 </head>
                 <body>
-                    <h1>PS4 Package Installer</h1>
-                    <p class="error">index.html file not found in root directory!</p>
-                    <p>Please make sure index.html is in the same folder as server.js</p>
+                    <h1>🎮 PS4 Package Installer</h1>
+                    <p class="github">📂 Loading PKG files from GitHub...</p>
+                    <p>If you see this, index.html is not found in root directory.</p>
                 </body>
             </html>
         `);
     }
 });
 
-// Serve static files from root if they exist
+// Serve static files from root
 app.use(express.static(__dirname));
 
 // Handle 404
@@ -1046,12 +1089,12 @@ app.use((req, res) => {
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📁 PKG folder: ${installer.pkgFolder}`);
+    console.log(`📂 Loading PKG files from GitHub: ${installer.githubRepo}`);
+    console.log(`🔗 GitHub URL: https://github.com/${installer.githubRepo}`);
     console.log(`\n📋 API Endpoints:`);
-    console.log(`   GET  /api/pkgs - List all PKG files`);
+    console.log(`   GET  /api/pkgs - List PKG files from GitHub`);
     console.log(`   GET  /api/pkgs/{name}/info - Get PKG info`);
-    console.log(`   POST /api/install - Install PKG`);
+    console.log(`   POST /api/install - Install PKG from GitHub`);
     console.log(`   GET  /api/status - Check installation status`);
     console.log(`   POST /api/cleanup - Cleanup connections`);
-    console.log(`\n💡 Place your PKG files in the 'pkgs' folder`);
 });

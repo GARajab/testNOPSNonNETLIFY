@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PS4 Package Installer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(45deg, #4cc9f0, #4361ee);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #8a9bb2;
+            font-size: 1.1rem;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .pkg-list-container {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .pkg-list-container h2 {
+            color: #4cc9f0;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .refresh-btn {
+            background: rgba(76, 201, 240, 0.2);
+            border: 1px solid #4cc9f0;
+            color: #4cc9f0;
+            padding: 8px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(76, 201, 240, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .pkg-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .pkg-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateX(5px);
+        }
+
+        .pkg-item.selected {
+            background: rgba(76, 201, 240, 0.15);
+            border-color: #4cc9f0;
+            box-shadow: 0 5px 15px rgba(76, 201, 240, 0.2);
+        }
+
+        .pkg-icon {
+            width: 50px;
+            height: 50px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            color: #8a9bb2;
+            flex-shrink: 0;
+        }
+
+        .pkg-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .pkg-title {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 5px;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .pkg-details {
+            font-size: 0.85rem;
+            color: #8a9bb2;
+            line-height: 1.4;
+        }
+
+        .pkg-size {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            color: #4cc9f0;
+            white-space: nowrap;
+        }
+
+        .game-info-panel {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: none;
+        }
+
+        .game-info-panel.visible {
+            display: block;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .game-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .game-icon-large {
+            width: 100px;
+            height: 100px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            color: #8a9bb2;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .game-icon-large img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .game-title-container {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .game-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #fff;
+            word-break: break-word;
+        }
+
+        .game-id {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            color: #4cc9f0;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .game-type {
+            display: inline-block;
+            background: rgba(67, 97, 238, 0.2);
+            color: #4361ee;
+            padding: 5px 15px;
+            border-radius: 15px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .game-details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .detail-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 3px solid #4cc9f0;
+        }
+
+        .detail-label {
+            font-size: 0.8rem;
+            color: #8a9bb2;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .detail-value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            word-break: break-word;
+        }
+
+        .controls {
+            margin-top: 30px;
+            padding-top: 25px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 18px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-install {
+            background: linear-gradient(135deg, #f72585, #b5179e);
+            color: white;
+        }
+
+        .btn-install:hover:not(:disabled) {
+            background: linear-gradient(135deg, #b5179e, #7209b7);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(247, 37, 133, 0.3);
+        }
+
+        .btn-cleanup {
+            background: linear-gradient(135deg, #4cc9f0, #4361ee);
+            color: white;
+        }
+
+        .btn-cleanup:hover:not(:disabled) {
+            background: linear-gradient(135deg, #4361ee, #3a0ca3);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(76, 201, 240, 0.3);
+        }
+
+        .btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+            opacity: 0.5;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .status-bar {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 1.1rem;
+            font-weight: 600;
+            min-height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .status-bar.success {
+            background: rgba(40, 167, 69, 0.2);
+            border-color: #28a745;
+            color: #28a745;
+        }
+
+        .status-bar.error {
+            background: rgba(220, 53, 69, 0.2);
+            border-color: #dc3545;
+            color: #dc3545;
+        }
+
+        .status-bar.warning {
+            background: rgba(255, 193, 7, 0.2);
+            border-color: #ffc107;
+            color: #ffc107;
+        }
+
+        .log-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .log-container h3 {
+            color: #4cc9f0;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            color: #e0e0e0;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .loading-overlay.visible {
+            display: flex;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top: 5px solid #4cc9f0;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #8a9bb2;
+        }
+
+        .empty-state.hidden {
+            display: none;
+        }
+
+        .error-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #f72585;
+        }
+
+        .error-state.hidden {
+            display: none;
+        }
+
+        .stats {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .stat-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: #4cc9f0;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(76, 201, 240, 0.5);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(76, 201, 240, 0.7);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 PS4 Package Installer</h1>
+            <p>Select a PKG file from your collection to install on your PS4</p>
+        </div>
+
+        <div class="main-content">
+            <div class="pkg-list-container">
+                <h2>
+                    Available PKG Files
+                    <button class="refresh-btn" id="refresh-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path
+                                d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+                        </svg>
+                        Refresh
+                    </button>
+                </h2>
+
+                <div class="empty-state" id="empty-state">
+                    <div style="font-size: 48px; margin-bottom: 20px;">📁</div>
+                    <p>No PKG files found</p>
+                    <p style="font-size: 0.9rem; margin-top: 10px; opacity: 0.7;">
+                        Place your .pkg files in the 'pkgs' folder
+                    </p>
+                </div>
+
+                <div class="error-state hidden" id="error-state">
+                    <div style="font-size: 48px; margin-bottom: 20px;">⚠️</div>
+                    <p id="error-message">Connection Error</p>
+                    <p style="font-size: 0.9rem; margin-top: 10px; opacity: 0.7;">
+                        Make sure the server is running
+                    </p>
+                </div>
+
+                <div id="pkg-list">
+                    <!-- PKG items will be loaded here -->
+                </div>
+            </div>
+
+            <div class="game-info-panel" id="game-info-panel">
+                <div class="game-header">
+                    <div class="game-icon-large" id="game-icon">
+                        <span>No Icon</span>
+                    </div>
+                    <div class="game-title-container">
+                        <div class="game-title" id="game-title">Select a PKG</div>
+                        <div class="game-id" id="game-content-id">Content ID will appear here</div>
+                        <div class="game-type" id="game-type">TYPE</div>
+                    </div>
+                </div>
+
+                <div class="game-details-grid" id="game-details">
+                    <!-- Details will be loaded here -->
+                </div>
+
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Files Loaded: </span>
+                        <span class="stat-value" id="file-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Size: </span>
+                        <span class="stat-value" id="total-size">0 MB</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="status-bar" id="status-bar">
+                Ready - Select a PKG file to begin
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-install" id="install-btn" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    INSTALL SELECTED PKG
+                </button>
+                <button class="btn btn-cleanup" id="cleanup-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                    </svg>
+                    CLEANUP CONNECTIONS
+                </button>
+            </div>
+
+            <div class="log-container">
+                <h3>
+                    Installation Log
+                    <span style="font-size: 0.9rem; font-weight: normal; color: #8a9bb2;" id="log-info">
+                        Real-time updates
+                    </span>
+                </h3>
+                <div class="log" id="log">Waiting for selection...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-message">Loading PKG files...</div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // DOM Elements
+            const pkgListElement = document.getElementById('pkg-list');
+            const gameInfoPanel = document.getElementById('game-info-panel');
+            const gameTitleElement = document.getElementById('game-title');
+            const gameContentIdElement = document.getElementById('game-content-id');
+            const gameTypeElement = document.getElementById('game-type');
+            const gameIconElement = document.getElementById('game-icon');
+            const gameDetailsElement = document.getElementById('game-details');
+            const installBtn = document.getElementById('install-btn');
+            const cleanupBtn = document.getElementById('cleanup-btn');
+            const statusBar = document.getElementById('status-bar');
+            const logElement = document.getElementById('log');
+            const emptyState = document.getElementById('empty-state');
+            const errorState = document.getElementById('error-state');
+            const errorMessageElement = document.getElementById('error-message');
+            const refreshBtn = document.getElementById('refresh-btn');
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const loadingMessage = document.getElementById('loading-message');
+            const fileCountElement = document.getElementById('file-count');
+            const totalSizeElement = document.getElementById('total-size');
+            const logInfoElement = document.getElementById('log-info');
+
+            // State variables
+            let selectedPkg = null;
+            let isInstalling = false;
+            let logInterval = null;
+            let pkgCache = [];
+            let totalCacheSize = 0;
+
+            // Utility functions
+            function escapeHtml(text) {
+                if (text === null || text === undefined) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function updateStatus(message, type = 'normal') {
+                statusBar.textContent = message;
+                statusBar.className = 'status-bar';
+                if (type === 'success') statusBar.classList.add('success');
+                else if (type === 'error') statusBar.classList.add('error');
+                else if (type === 'warning') statusBar.classList.add('warning');
+            }
+
+            function addLog(message) {
+                const timestamp = new Date().toLocaleTimeString();
+                logElement.textContent += `[${timestamp}] ${message}\n`;
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+
+            function showLoading(show, message = 'Loading...') {
+                loadingMessage.textContent = message;
+                loadingOverlay.classList.toggle('visible', show);
+            }
+
+            function showError(show, message = 'Connection Error') {
+                errorMessageElement.textContent = message;
+                errorState.classList.toggle('hidden', !show);
+                emptyState.classList.toggle('hidden', show);
+            }
+
+            function showEmpty(show) {
+                emptyState.classList.toggle('hidden', !show);
+                errorState.classList.add('hidden');
+            }
+
+            // Fetch PKG files - Uses relative paths since HTML is in root
+            async function fetchPkgList() {
+                showLoading(true, 'Loading PKG files...');
+                pkgListElement.innerHTML = '';
+                showError(false);
+                showEmpty(false);
+
+                try {
+                    const response = await fetch('/api/pkgs');
+
+                    if (!response.ok) {
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+
+                    if (data.success && data.pkgs && data.pkgs.length > 0) {
+                        pkgCache = data.pkgs;
+                        totalCacheSize = pkgCache.reduce((sum, pkg) => sum + (parseFloat(pkg.sizeMB) || 0), 0);
+                        renderPkgList(data.pkgs);
+                        showEmpty(false);
+                        updateStatus(`Found ${data.pkgs.length} PKG files`, 'success');
+                        updateStats();
+                    } else {
+                        showEmpty(true);
+                        updateStatus('No PKG files found in the folder');
+                    }
+                } catch (error) {
+                    console.error('Error fetching PKG list:', error);
+                    showError(true, `Connection failed: ${error.message}`);
+                    updateStatus('❌ Cannot connect to server', 'error');
+                    addLog(`Error: ${error.message}`);
+                } finally {
+                    showLoading(false);
+                }
+            }
+
+            // Render PKG list
+            function renderPkgList(pkgs) {
+                pkgListElement.innerHTML = '';
+
+                pkgs.forEach(pkg => {
+                    const pkgItem = document.createElement('div');
+                    pkgItem.className = 'pkg-item';
+                    pkgItem.dataset.filename = pkg.filename;
+
+                    pkgItem.innerHTML = `
+                        <div class="pkg-icon">
+                            ${pkg.category?.toUpperCase() || 'PKG'}
+                        </div>
+                        <div class="pkg-info">
+                            <div class="pkg-title">${escapeHtml(pkg.title || pkg.filename)}</div>
+                            <div class="pkg-details">
+                                <div>ID: ${escapeHtml(pkg.titleId || 'N/A')}</div>
+                                <div>Type: ${escapeHtml(pkg.category || 'unknown')}</div>
+                            </div>
+                        </div>
+                        <div class="pkg-size">${pkg.sizeMB || '0'} MB</div>
+                    `;
+
+                    pkgItem.addEventListener('click', () => selectPkg(pkg));
+                    pkgListElement.appendChild(pkgItem);
+                });
+            }
+
+            // Update statistics
+            function updateStats() {
+                fileCountElement.textContent = pkgCache.length;
+                totalSizeElement.textContent = `${totalCacheSize.toFixed(1)} MB`;
+            }
+
+            // Select PKG
+            async function selectPkg(pkg) {
+                document.querySelectorAll('.pkg-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+
+                const selectedItem = document.querySelector(`.pkg-item[data-filename="${pkg.filename}"]`);
+                if (selectedItem) {
+                    selectedItem.classList.add('selected');
+                }
+
+                selectedPkg = pkg;
+                installBtn.disabled = false;
+                gameInfoPanel.classList.add('visible');
+
+                // Update basic info
+                gameTitleElement.textContent = escapeHtml(pkg.title || pkg.filename);
+                gameContentIdElement.textContent = pkg.contentId || 'N/A';
+                gameTypeElement.textContent = (pkg.category || 'unknown').toUpperCase();
+                gameIconElement.innerHTML = '<span>Loading...</span>';
+
+                // Show loading state
+                gameDetailsElement.innerHTML = '<div class="detail-item"><div class="detail-label">Loading</div><div class="detail-value">Please wait...</div></div>';
+
+                // Fetch detailed info - Uses relative path
+                try {
+                    const response = await fetch(`/api/pkgs/${encodeURIComponent(pkg.filename)}/info?includeIcon=true`);
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned ${response.status}`);
+                    }
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        const info = data.info;
+
+                        // Update icon
+                        if (data.hasIcon && data.iconData) {
+                            const img = document.createElement('img');
+                            img.src = `data:image/${data.iconType};base64,${data.iconData}`;
+                            img.alt = pkg.title || pkg.filename;
+                            img.onerror = () => {
+                                gameIconElement.innerHTML = '<span>Invalid Icon</span>';
+                            };
+                            gameIconElement.innerHTML = '';
+                            gameIconElement.appendChild(img);
+                        } else {
+                            gameIconElement.innerHTML = '<span>No Icon</span>';
+                        }
+
+                        // Update details
+                        const details = [
+                            { label: 'Title ID', value: info.titleId || pkg.titleId || 'N/A' },
+                            { label: 'Content ID', value: info.contentId || pkg.contentId || 'N/A' },
+                            { label: 'Category', value: info.category || pkg.category || 'N/A' },
+                            { label: 'Content Type', value: info.contentType || 'Game' },
+                            { label: 'Version', value: info.version || 'N/A' },
+                            { label: 'System Version', value: info.systemVer || 'N/A' },
+                            { label: 'File Size', value: `${info.filesizeMB || pkg.sizeMB || '0'} MB` },
+                            { label: 'App Type', value: info.appType || 'N/A' }
+                        ];
+
+                        gameDetailsElement.innerHTML = details.map(detail => `
+                            <div class="detail-item">
+                                <div class="detail-label">${detail.label}</div>
+                                <div class="detail-value">${escapeHtml(detail.value)}</div>
+                            </div>
+                        `).join('');
+
+                        selectedPkg.fullInfo = info;
+                        updateStatus(`Selected: ${info.title || pkg.filename}`, 'success');
+                        addLog(`Selected PKG: ${info.title || pkg.filename}`);
+                    }
+                } catch (error) {
+                    console.error('Error fetching PKG details:', error);
+                    gameIconElement.innerHTML = '<span>Error</span>';
+                    gameDetailsElement.innerHTML = `
+                        <div class="detail-item">
+                            <div class="detail-label">Error</div>
+                            <div class="detail-value">Failed to load details</div>
+                        </div>
+                    `;
+                    updateStatus('⚠️ Could not load PKG details', 'warning');
+                    addLog(`Warning: Could not load details for ${pkg.filename}`);
+                }
+            }
+
+            // Fetch logs - Uses relative path
+            async function fetchLogs() {
+                try {
+                    const response = await fetch('/api/status');
+
+                    if (!response.ok) return;
+
+                    const data = await response.json();
+
+                    if (data.log && Array.isArray(data.log)) {
+                        logElement.textContent = data.log.join('\n');
+                        logElement.scrollTop = logElement.scrollHeight;
+                    }
+
+                    isInstalling = data.isInstalling || false;
+                    installBtn.disabled = isInstalling || !selectedPkg;
+
+                    if (isInstalling) {
+                        installBtn.innerHTML = '<svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2"><animate attributeName="stroke-dasharray" values="0,100;100,0" dur="1.5s" repeatCount="indefinite"/></circle></svg> INSTALLING...';
+                        updateStatus('Installation in progress...', 'warning');
+                        logInfoElement.textContent = 'Live updating...';
+                    } else {
+                        installBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> INSTALL SELECTED PKG';
+                        logInfoElement.textContent = 'Real-time updates';
+
+                        if (data.log && data.log.length > 0) {
+                            const lastLog = data.log[data.log.length - 1];
+                            if (lastLog.includes('completed')) {
+                                updateStatus('✅ Installation completed', 'success');
+                            } else if (lastLog.includes('failed')) {
+                                updateStatus('❌ Installation failed', 'error');
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error fetching logs:', error);
+                }
+            }
+
+            // Start installation - Uses relative path
+            async function startInstallation() {
+                if (isInstalling || !selectedPkg) return;
+
+                isInstalling = true;
+                installBtn.disabled = true;
+                updateStatus('Starting installation...', 'warning');
+
+                // Clear and prepare log
+                logElement.textContent = '';
+                addLog(`🚀 Starting installation of: ${selectedPkg.title || selectedPkg.filename}`);
+                addLog(`📁 File: ${selectedPkg.filename}`);
+                addLog(`📊 Size: ${selectedPkg.sizeMB || '0'} MB`);
+                addLog('─'.repeat(50));
+
+                try {
+                    const response = await fetch('/api/install', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            pkgName: selectedPkg.filename
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned ${response.status}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        updateStatus('✅ Installation completed', 'success');
+                        addLog('🎉 Installation finished successfully!');
+                        addLog('🔌 All connections closed');
+                    } else {
+                        updateStatus('❌ Installation failed', 'error');
+                        addLog('💥 Installation failed. Check logs above for details.');
+                    }
+
+                } catch (error) {
+                    updateStatus('❌ Connection error', 'error');
+                    addLog('❌ Failed to connect to server: ' + error.message);
+                } finally {
+                    isInstalling = false;
+                    installBtn.disabled = !selectedPkg;
+
+                    setTimeout(() => {
+                        if (logInterval) {
+                            clearInterval(logInterval);
+                            logInterval = null;
+                        }
+                    }, 5000);
+                }
+            }
+
+            // Cleanup - Uses relative path
+            async function manualCleanup() {
+                try {
+                    const response = await fetch('/api/cleanup', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    updateStatus('🧹 Cleanup completed', 'success');
+                    addLog('🔌 Manual cleanup - All connections closed');
+
+                } catch (error) {
+                    addLog('❌ Cleanup failed: ' + error.message);
+                    updateStatus('❌ Cleanup failed', 'error');
+                }
+            }
+
+            // Event listeners
+            installBtn.addEventListener('click', function () {
+                if (!selectedPkg) {
+                    updateStatus('❌ Please select a PKG file first', 'error');
+                    return;
+                }
+
+                startInstallation();
+
+                if (logInterval) clearInterval(logInterval);
+                logInterval = setInterval(fetchLogs, 1000);
+            });
+
+            cleanupBtn.addEventListener('click', manualCleanup);
+
+            refreshBtn.addEventListener('click', function () {
+                updateStatus('Refreshing PKG list...', 'warning');
+                addLog('🔄 Refreshing PKG list...');
+                fetchPkgList();
+            });
+
+            // Initialize
+            updateStatus('Connecting to server...', 'warning');
+            fetchPkgList();
+
+            // Start log polling
+            setInterval(fetchLogs, 3000);
+        });
+    </script>
+</body>
+
+</html>

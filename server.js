@@ -14,7 +14,7 @@ app.use(express.json());
 
 class DualRequestInstaller {
     constructor() {
-        this.pcIp = "109.63.109.63"
+        this.pcIp = "109.63.109.63#53"
         this.backendUrl = "https://testnopsnonnetlify.onrender.com"
         this.callbackPort = 9022;
         this.callbackConnected = false;

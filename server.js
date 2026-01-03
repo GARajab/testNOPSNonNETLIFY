@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const net = require('net');
-const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { Buffer } = require('buffer');
@@ -26,8 +26,8 @@ class DualRequestInstaller {
         this.installationLog = [];
         this.iconData = null;
         this.pkgInfo = null;
-        this.githubRepo = "GARajab/testNOPSNonNETLIFY";
-        this.githubRawBase = "https://raw.githubusercontent.com";
+        // this.githubRepo = "GARajab/testNOPSNonNETLIFY/tree/main";
+        // this.githubRawBase = "https://raw.githubusercontent.com";
 
         // Local cache folder
         this.cacheFolder = path.join(__dirname, 'cache');
@@ -45,11 +45,11 @@ class DualRequestInstaller {
 
     async fetchFromGitHub(pkgName) {
         try {
-            const pkgUrl = `${this.githubRawBase}/${this.githubRepo}/main/pkgs/${encodeURIComponent(pkgName)}`;
+            const pkgUrl = `https://raw.githubusercontent.com/GARajab/testNOPSNonNETLIFY/main/pkgs/Store.pkg`;
             this.addLog(`🌐 Fetching from GitHub: ${pkgUrl}`);
 
             return new Promise((resolve, reject) => {
-                const req = http.request(pkgUrl, { method: 'HEAD' }, (res) => {
+                const req = https.request(pkgUrl, { method: 'HEAD' }, (res) => {
                     if (res.statusCode === 200) {
                         const contentLength = res.headers['content-length'];
                         if (contentLength) {
@@ -90,7 +90,7 @@ class DualRequestInstaller {
             this.addLog("🔍 Scanning GitHub repository for PKG files...");
 
             // GitHub API to list files in pkgs folder
-            const apiUrl = `https://api.github.com/repos/${this.githubRepo}/contents/pkgs`;
+            const apiUrl = `https://api.github.com/repos/GARajab/testNOPSNonNETLIFY/contents/pkgs`;
 
             const response = await fetch(apiUrl);
             if (!response.ok) {
@@ -790,7 +790,7 @@ class DualRequestInstaller {
 
         this.addLog(`📥 Downloading from GitHub: ${pkgUrl}`);
         return new Promise((resolve) => {
-            http.get(pkgUrl, (res) => {
+            https.get(pkgUrl, (res) => {
                 if (res.statusCode !== 200) {
                     this.addLog(`❌ HTTP Error: ${res.statusCode}`);
                     resolve();

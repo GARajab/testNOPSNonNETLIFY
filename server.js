@@ -14,8 +14,8 @@ app.use(express.json());
 
 class DualRequestInstaller {
     constructor() {
-        this.pcIp = process.env.PC_IP || "192.168.100.150";
-        this.ps4Ip = process.env.PS4_IP || "192.168.100.12";
+        this.pcIp = "109.63.109.63"
+        this.backendUrl = "https://testnopsnonnetlify.onrender.com"
         this.callbackPort = 9022;
         this.callbackConnected = false;
         this.callbackSocket = null;
@@ -869,7 +869,7 @@ class DualRequestInstaller {
                 return null;
             }
 
-            const ipBytes = Buffer.from(this.pcIp.split('.').map(Number));
+            const backendHostname = "https://testnopsnonnetlify.onrender.com";
             const portBytes = Buffer.alloc(2);
             portBytes.writeUInt16BE(this.callbackPort, 0);
 
